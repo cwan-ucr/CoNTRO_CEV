@@ -1,0 +1,19 @@
+<additionals>
+    <e2Detector id="DET+++eastBottom___intersectionSE" lane="eastBottom___intersectionSE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++eastTop___intersectionNE" lane="eastTop___intersectionNE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionNE___intersectionNW" lane="intersectionNE___intersectionNW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionNE___intersectionSE" lane="intersectionNE___intersectionSE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionNW___intersectionNE" lane="intersectionNW___intersectionNE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionNW___intersectionSW" lane="intersectionNW___intersectionSW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionSE___intersectionNE" lane="intersectionSE___intersectionNE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionSE___intersectionSW" lane="intersectionSE___intersectionSW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionSW___intersectionNW" lane="intersectionSW___intersectionNW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++intersectionSW___intersectionSE" lane="intersectionSW___intersectionSE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++northLeft___intersectionNW" lane="northLeft___intersectionNW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++northRight___intersectionNE" lane="northRight___intersectionNE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++southLeft___intersectionSW" lane="southLeft___intersectionSW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++southRight___intersectionSE" lane="southRight___intersectionSE_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++westBottom___intersectionSW" lane="westBottom___intersectionSW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <e2Detector id="DET+++westTop___intersectionNW" lane="westTop___intersectionNW_0" pos="142.0" endPos="292.0" freq="100000" friendlyPos="true" file="2_2_intersections.out"/>
+    <edgeData id="edgeData_0" file="edgeData_9999.out.xml"/>
+</additionals>

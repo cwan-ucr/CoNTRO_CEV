@@ -10,7 +10,7 @@
         "test_num_eps": 50
     },
     "agent": {
-        "agent_type": "sac",
+        "agent_type": "ppo",
         "single_agent": false
     },
     "ppo":{
@@ -45,13 +45,15 @@
         "rule_set_params": {"cycle_length": 120, "NS_mult": 1.0, "EW_mult": 1.0, "phase_end_offset": 100}
     },
     "environment": {
-        "shape": [2, 2],
+        "shape": [4, 4],
         "rush_hour": false,
         "uniform_generation_probability": 0.06,
-        "use_vehicle_controller": false,
+        "use_vehicle_controller": true,
         "step_length": 1,
         "gather_vehicle_info": true,
-        "actuated_tls": false
+        "actuated_tls": false,
+        "phase_mode": "hybrid",
+        "vehicle_type_distribution": [0.4, 0.2, 0.2, 0.2]
     },
     "multiagent": {
         "reward_interpolation": 0,

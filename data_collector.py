@@ -10,12 +10,9 @@ import numpy as np
 
 
 # What data is possible to be collected
-POSSIBLE_DATA = ['time',
-                 'rew',
-                 'waitingTime',
-                 'avg_speed_car',
-                 'energy_per_mile_car',
-                 'avg_veh_num_car']
+POSSIBLE_DATA = ['time', 'rew', 'waitingTime']
+for vtype in ['icev', 'ev', 'cav', 'caev']:
+    POSSIBLE_DATA += [f'avg_speed_{vtype}', f'energy_per_mile_{vtype}', f'avg_veh_num_{vtype}']
 
 # Keys that must be added
 _EVAL_DEF_KEYS = ['rollout']
@@ -25,16 +22,20 @@ _GLOBAL_DATA = {'time': {'header': 'total time taken(m)', 'init_value': 0, 'add_
 _EVAL_DATA = {'rew': {'header': 'eval_best_rew', 'init_value': float('-inf'), 'add_type': 'set_on_greater'},
               'waitingTime': {'header': 'eval_best_waiting_time', 'init_value': float('inf'), 'add_type': 'set_on_less'},
               'rollout': {'header': 'eval_train_rollout', 'init_value': float('inf'), 'add_type': 'set_on_less'}}
-_EVAL_DATA.update({
-    'avg_speed_car': {'header': 'avg_speed_ev', 'init_value': float('-inf'), 'add_type': 'set_on_greater'},
-    'energy_per_mile_car': {'header': 'energy_per_mile_ev', 'init_value': float('inf'), 'add_type': 'set_on_less'},
-    'avg_veh_num_car': {'header': 'avg_veh_num_car', 'init_value': float('inf'), 'add_type': 'set_on_less'}})
+for v in ['icev', 'ev', 'cav', 'caev']:
+    _EVAL_DATA.update({
+        f'avg_speed_{v}': {'header': f'eval_avg_speed_{v}', 'init_value': float('-inf'), 'add_type': 'set_on_greater'},
+        f'energy_per_mile_{v}': {'header': f'eval_energy_per_mile_{v}', 'init_value': float('inf'), 'add_type': 'set_on_less'},
+        f'avg_veh_num_{v}': {'header': f'eval_avg_veh_num_{v}', 'init_value': float('inf'), 'add_type': 'set_on_less'},
+    })
 _TEST_DATA = {'rew': {'header': 'test_avg_rew', 'init_value': [], 'add_type': 'append'},
             'waitingTime': {'header': 'test_avg_waiting_time', 'init_value': [], 'add_type': 'append'}}
-_TEST_DATA.update({
-    'avg_speed_car': {'header': 'test_avg_speed_ev', 'init_value': [], 'add_type': 'append'},
-    'energy_per_mile_car': {'header': 'test_energy_per_mile_ev', 'init_value': [], 'add_type': 'append'},
-    'avg_veh_num_car': {'header': 'test_avg_veh_num_car', 'init_value': [], 'add_type': 'append'}})
+for v in ['icev', 'ev', 'cav', 'caev']:
+    _TEST_DATA.update({
+        f'avg_speed_{v}': {'header': f'test_avg_speed_{v}', 'init_value': [], 'add_type': 'append'},
+        f'energy_per_mile_{v}': {'header': f'test_energy_per_mile_{v}', 'init_value': [], 'add_type': 'append'},
+        f'avg_veh_num_{v}': {'header': f'test_avg_veh_num_{v}', 'init_value': [], 'add_type': 'append'},
+    })
 
 class DataCollector:
     # Will make a df or add to an existing df (if a file already exists in the path)

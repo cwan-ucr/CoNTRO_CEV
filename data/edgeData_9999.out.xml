@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-06-27 15:58:26 by Eclipse SUMO sumo Version 1.21.0
-<sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
+<!-- generated on 2025-07-03 20:12:13 by Eclipse SUMO sumo Version 1.20.0
+<configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
-        <net-file value="data/1_1_intersections.net.xml"/>
-        <route-files value="data/1_1_intersections_9999.rou.xml"/>
-        <additional-files value="data/1_1_intersections_9999.add.xml"/>
+        <net-file value="data/4_4_intersections.net.xml"/>
+        <route-files value="data/4_4_intersections_9999.rou.xml"/>
+        <additional-files value="data/4_4_intersections_9999.add.xml,data/vehicle_types.add.xml"/>
     </input>
 
     <time>
@@ -23,7 +23,7 @@
         <remote-port value="9812"/>
     </traci_server>
 
-</sumoConfiguration>
+</configuration>
 -->
 
 <meandata xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/meandata_file.xsd">

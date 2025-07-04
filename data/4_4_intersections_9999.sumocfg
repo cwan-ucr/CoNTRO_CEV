@@ -4,7 +4,7 @@
         <input>
             <net-file value="4_4_intersections.net.xml"/>
             <route-files value="4_4_intersections_9999.rou.xml"/>
-            <additional-files value="4_4_intersections_9999.add.xml"/>
+            <additional-files value="4_4_intersections_9999.add.xml,vehicle_types.add.xml"/>
         </input>
 
         <time>

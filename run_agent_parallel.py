@@ -146,11 +146,11 @@ def train_PPO(constants, device, data_collector):
     rollout_counter = Counter()
     processes = []
 
-    # eval_id = 9999  # reserve high numeric ID for eval
-    # p = mp.Process(target=eval_worker, args=(eval_id, shared_NN, data_collector, rollout_counter, constants, device, max_neighborhood_size))
-    # p.start()
-    # processes.append(p)
-    # time.sleep(0.5)
+    eval_id = 9999  # reserve high numeric ID for eval
+    p = mp.Process(target=eval_worker, args=(eval_id, shared_NN, data_collector, rollout_counter, constants, device, max_neighborhood_size))
+    p.start()
+    processes.append(p)
+    time.sleep(0.5)
 
     for i in range(constants['parallel']['num_workers']):
         p = mp.Process(target=train_worker, args=(
@@ -190,11 +190,11 @@ def train_SAC(constants, device, data_collector):
     rollout_counter = Counter()
     processes = []
 
-    # eval_id = 9999  # reserve high numeric ID for eval
-    # p = mp.Process(target=eval_worker, args=(eval_id, shared_NN, data_collector, rollout_counter, constants, device, max_neighborhood_size))
-    # p.start()
-    # processes.append(p)
-    # time.sleep(0.5)
+    eval_id = 9999  # reserve high numeric ID for eval
+    p = mp.Process(target=eval_worker, args=(eval_id, shared_NN, data_collector, rollout_counter, constants, device, max_neighborhood_size))
+    p.start()
+    processes.append(p)
+    time.sleep(0.5)
 
     for i in range(constants['parallel']['num_workers']):
         p = mp.Process(target=train_worker_SAC,

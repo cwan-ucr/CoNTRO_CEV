@@ -509,7 +509,7 @@ class IntersectionsEnv(Environment):
         <input>
             <net-file value="{get_rel_net_path(self.env_name)}"/>
             <route-files value="{self.env_name}_{self.agent_ID}.rou.xml"/>
-            <additional-files value="{self.env_name}_{self.agent_ID}.add.xml"/>
+            <additional-files value="{self.env_name}_{self.agent_ID}.add.xml,vehicle_types.add.xml"/>
         </input>
 
         <time>
@@ -530,10 +530,138 @@ class IntersectionsEnv(Environment):
             print(f"[Worker {self.agent_ID}] Error writing SUMO config file: {e}")
 
 
+    # def _add_vehicle(self, t, node_probs):
+    #     trips = []
+    #     rem_nodes = list(node_probs.keys())
+    #     rem_probs = [v['rem'] for v in node_probs.values()]
+
+    #     def pick_rem_edge(gen_node):
+    #         while True:
+    #             chosen = choice(rem_nodes, p=rem_probs)
+    #             if chosen != gen_node:
+    #                 return chosen
+
+    #     for gen_k, dic in node_probs.items():
+    #         if random.random() < dic['gen']:
+    #             rem_k = pick_rem_edge(gen_k)
+    #             route_id = f"{gen_k}___{rem_k}"
+    #             gen_edge = self.node_edge_dic[gen_k]['gen']
+    #             rem_edge = self.node_edge_dic[rem_k]['rem']
+    #             trips.append(f'    <trip id="{route_id}_{t}" type="car" from="{gen_edge}" to="{rem_edge}" depart="{t}"/>')
+
+    #     return trips
+
+
+    # def _generate_routefile(self):
+    #     route_lines = [
+    #         "<routes>",
+    #         f'    <vType id="car" accel="0.8" decel="4.5" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger"/>'
+    #     ]
+        
+    #     for t in range(self.constants['episode']['generation_ep_steps']):
+    #         trips = self._add_vehicle(t, get_current_phase_probs(t, self.phases, self.constants['episode']['generation_ep_steps']))
+    #         route_lines.extend(trips)
+
+    #     route_lines.append("</routes>")
+
+    #     route_path = f"data/{self.env_name}_{self.agent_ID}.rou.xml"
+    #     with open(route_path, "w") as f:
+    #         f.write("\n".join(route_lines))
+
+
+    # def _generate_addfile(self):
+    #     from xml.sax.saxutils import escape
+
+    #     self.all_dets = []
+    #     self.intersection_dets = OrderedDict({k: [] for k in self.intersections})
+
+    #     add_lines = ['<additionals>']
+
+    #     tree = ET.parse(self.net_path)
+    #     root = tree.getroot()
+
+    #     for edge in root.iter('edge'):
+    #         edge_id = edge.attrib['id']
+    #         if 'function' in edge.attrib or 'intersection' not in edge.attrib['to']:
+    #             continue
+    #         length = float(edge[0].attrib['length'])
+    #         pos = length - (DET_LENGTH_IN_CARS * (VEH_LENGTH + VEH_MIN_GAP))
+    #         det_id = f'DET+++{edge_id}'
+    #         self.all_dets.append(det_id)
+    #         self.intersection_dets[edge.attrib['to']].append(det_id)
+
+    #         add_lines.append(
+    #             f'    <e2Detector id="{escape(det_id)}" lane="{escape(edge_id)}_0" pos="{pos}" endPos="{length}" '
+    #             f'freq="100000" friendlyPos="true" file="{escape(self.env_name)}.out"/>'
+    #         )
+
+    #     add_lines.append(f'    <edgeData id="edgeData_0" file="edgeData_{self.agent_ID}.out.xml"/>')
+    #     add_lines.append('</additionals>')
+
+    #     add_path = f"data/{self.env_name}_{self.agent_ID}.add.xml"
+    #     with open(add_path, "w") as f:
+    #         f.write("\n".join(add_lines))
+            
+    # def _update_traffic_signal_state(self, ep_step):
+    #     """
+    #     Precompute signal phase structure and lane queues.
+    #     Call this once per simulation step before _vehicle_control().
+    #     """
+    #     tls_ids = self.connection.trafficlight.getIDList()
+
+    #     # === 1. Record signal phases (every 200 steps only)
+    #     if ep_step % 200 == 0:
+    #         self.phases_old_all = {
+    #             tls_id: logic.phases
+    #             for tls_id in tls_ids
+    #             for logic in self.connection.trafficlight.getAllProgramLogics(tls_id)
+    #             if logic.programID == self.connection.trafficlight.getProgram(tls_id)
+    #         }
+
+    #     # === 2. Update actuated signal durations
+    #     if self.constants['environment']['actuated_tls']:
+    #         for tls_id in tls_ids:
+    #             if 'G' in self.connection.trafficlight.getRedYellowGreenState(tls_id):
+    #                 if self.connection.trafficlight.getSpentDuration(tls_id) == 1:
+    #                     current_phase = self.connection.trafficlight.getPhase(tls_id)
+    #                     next_switch = self.connection.trafficlight.getNextSwitch(tls_id)
+    #                     current_time = self.connection.simulation.getTime()
+    #                     self.phases_old_all[tls_id][current_phase].duration = (
+    #                         next_switch - current_time + 1
+    #                     )
+
+    #     # === 3. Update queue lengths and EAD vehicle tracking
+    #     self.Qab = []
+    #     ead_set = set(self.EAD_ID_list)  # Use set for faster lookup
+
+    #     for tls_id in tls_ids:
+    #         controlled_lanes = self.connection.trafficlight.getControlledLanes(tls_id)
+    #         for lane in controlled_lanes:
+    #             veh_ids = self.connection.lane.getLastStepVehicleIDs(lane)
+    #             queue_len = 0
+
+    #             for veh_id in veh_ids:
+    #                 # EAD vehicle registration
+    #                 if self.connection.vehicle.getTypeID(veh_id) == "car" and veh_id not in ead_set:
+    #                     self.EAD_ID_list.append(veh_id)
+    #                     self.last_speed.append(13.0)
+    #                     ead_set.add(veh_id)
+
+    #                 # Count queued vehicles
+    #                 if self.connection.vehicle.getSpeed(veh_id) < 0.1:
+    #                     tls_info = self.connection.vehicle.getNextTLS(veh_id)
+    #                     if tls_info and tls_info[0][2] < 150:
+    #                         queue_len += 1
+
+    #             self.Qab.append([tls_id, lane, queue_len])
+
     def _add_vehicle(self, t, node_probs):
         trips = []
         rem_nodes = list(node_probs.keys())
         rem_probs = [v['rem'] for v in node_probs.values()]
+
+        vehicle_types = ["ICEV", "EV", "CAV", "CAEV"]
+        vehicle_probs = self.constants["environment"]["vehicle_type_distribution"]  # e.g., [0.4, 0.2, 0.2, 0.2]
 
         def pick_rem_edge(gen_node):
             while True:
@@ -547,7 +675,10 @@ class IntersectionsEnv(Environment):
                 route_id = f"{gen_k}___{rem_k}"
                 gen_edge = self.node_edge_dic[gen_k]['gen']
                 rem_edge = self.node_edge_dic[rem_k]['rem']
-                trips.append(f'    <trip id="{route_id}_{t}" type="car" from="{gen_edge}" to="{rem_edge}" depart="{t}"/>')
+                vehicle_type = random.choices(vehicle_types, weights=vehicle_probs, k=1)[0]
+                trips.append(
+                    f'    <trip id="{route_id}_{t}" type="{vehicle_type}" from="{gen_edge}" to="{rem_edge}" depart="{t}"/>'
+                )
 
         return trips
 
@@ -555,11 +686,18 @@ class IntersectionsEnv(Environment):
     def _generate_routefile(self):
         route_lines = [
             "<routes>",
-            f'    <vType id="car" accel="0.8" decel="4.5" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger"/>'
+            f'    <vType id="ICEV" vClass="passenger" accel="1.0" decel="4.5" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger"/>',
+            f'    <vType id="CAV" vClass="passenger" accel="1.0" decel="4.5" sigma="0.3" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger" carFollowModel="CACC"/>'
+            # EV and CAEV will be loaded via external XML
         ]
-        
+
         for t in range(self.constants['episode']['generation_ep_steps']):
-            trips = self._add_vehicle(t, get_current_phase_probs(t, self.phases, self.constants['episode']['generation_ep_steps']))
+            trips = self._add_vehicle(
+                t,
+                get_current_phase_probs(
+                    t, self.phases, self.constants['episode']['generation_ep_steps']
+                ),
+            )
             route_lines.extend(trips)
 
         route_lines.append("</routes>")
@@ -601,24 +739,90 @@ class IntersectionsEnv(Environment):
         add_path = f"data/{self.env_name}_{self.agent_ID}.add.xml"
         with open(add_path, "w") as f:
             f.write("\n".join(add_lines))
-            
+
+    
+    def _get_cycle_info(self, tls_id):
+        """
+        Return current cycle length and estimated cycle start time for a given TLS.
+        """
+        current_time = self.connection.simulation.getTime()
+        program_id = self.connection.trafficlight.getProgram(tls_id)
+        all_logics = self.connection.trafficlight.getAllProgramLogics(tls_id)
+
+        for logic in all_logics:
+            if logic.programID == program_id:
+                phases = logic.phases
+                cycle_len = sum(phase.duration for phase in phases)
+                current_phase = self.connection.trafficlight.getPhase(tls_id)
+                next_switch = self.connection.trafficlight.getNextSwitch(tls_id)
+
+                # Time spent in current phase
+                elapsed = phases[current_phase].duration - (next_switch - current_time)
+                offset = sum(phase.duration for phase in phases[:current_phase]) + elapsed
+                cycle_start = current_time - offset
+
+                return cycle_len, cycle_start
+
+        return None, None
+    
     def _update_traffic_signal_state(self, ep_step):
         """
         Precompute signal phase structure and lane queues.
-        Call this once per simulation step before _vehicle_control().
+        Handles recorded, predicted, and hybrid signal phase modes.
         """
+
         tls_ids = self.connection.trafficlight.getIDList()
 
-        # === 1. Record signal phases (every 200 steps only)
+        # === Phase mode setting ===
+        phase_mode = self.constants['environment'].get('phase_mode', 'recorded')  # 'recorded', 'predicted', or 'hybrid'
+
+        # === 1. Recorded Phases (every 200 steps only)
         if ep_step % 200 == 0:
-            self.phases_old_all = {
+            self.recorded_phases = {
                 tls_id: logic.phases
                 for tls_id in tls_ids
                 for logic in self.connection.trafficlight.getAllProgramLogics(tls_id)
                 if logic.programID == self.connection.trafficlight.getProgram(tls_id)
             }
 
-        # === 2. Update actuated signal durations
+        # === 2. Predicted Phases (based on policy outputs) (every 5 steps only)
+        # if phase_mode in ['predicted', 'hybrid'] and ep_step % 5 == 0:
+        if phase_mode in ['predicted', 'hybrid']:
+            # from traci.trafficlight import Phase
+            self.predicted_phases = {}
+            policy_outputs = self._get_cycle_policy_outputs()  # {tls_id: (cycle_len, green_len)}
+            for tls_id in tls_ids:
+                cycle_len, green_len = policy_outputs[tls_id]
+                self.predicted_phases[tls_id] = [
+                    traci.trafficlight.Phase(duration=green_len, state="GGgsrrGGgsrr"),
+                    traci.trafficlight.Phase(duration=3, state="yyysrryyysrr"),
+                    traci.trafficlight.Phase(duration=cycle_len - green_len - 3, state="srrGGgsrrGGg"),
+                    traci.trafficlight.Phase(duration=3, state="srryyysrryyy")
+                ]
+
+        # === 3. Hybrid Phases (within current cycle)
+        if phase_mode == 'hybrid':
+            self.phases_old_all = {}
+            for tls_id in tls_ids:
+                # 以当前时间点在本 cycle 中的位置作为 alpha
+                current_time = self.connection.simulation.getTime()
+                cycle_len, cycle_start = self._get_cycle_info(tls_id)
+                alpha = min((current_time - cycle_start) / cycle_len, 1.0)
+
+                hybrid_phases = []
+                for i in range(4):
+                    rec = self.recorded_phases[tls_id][i].duration
+                    pred = self.predicted_phases[tls_id][i].duration
+                    blended = int((1 - alpha) * rec + alpha * pred)
+                    state = self.recorded_phases[tls_id][i].state  # 默认状态不变
+                    hybrid_phases.append(traci.trafficlight.Phase(duration=blended, state=state))
+                self.phases_old_all[tls_id] = hybrid_phases
+        elif phase_mode == 'predicted':
+            self.phases_old_all = self.predicted_phases
+        else:  # 'recorded'
+            self.phases_old_all = self.recorded_phases
+
+        # === 4. Update actuated signal durations
         if self.constants['environment']['actuated_tls']:
             for tls_id in tls_ids:
                 if 'G' in self.connection.trafficlight.getRedYellowGreenState(tls_id):
@@ -630,7 +834,7 @@ class IntersectionsEnv(Environment):
                             next_switch - current_time + 1
                         )
 
-        # === 3. Update queue lengths and EAD vehicle tracking
+        # === 5. Update queue lengths and EAD vehicle tracking
         self.Qab = []
         ead_set = set(self.EAD_ID_list)  # Use set for faster lookup
 
@@ -641,13 +845,11 @@ class IntersectionsEnv(Environment):
                 queue_len = 0
 
                 for veh_id in veh_ids:
-                    # EAD vehicle registration
                     if self.connection.vehicle.getTypeID(veh_id) == "car" and veh_id not in ead_set:
                         self.EAD_ID_list.append(veh_id)
                         self.last_speed.append(13.0)
                         ead_set.add(veh_id)
 
-                    # Count queued vehicles
                     if self.connection.vehicle.getSpeed(veh_id) < 0.1:
                         tls_info = self.connection.vehicle.getNextTLS(veh_id)
                         if tls_info and tls_info[0][2] < 150:
@@ -655,6 +857,10 @@ class IntersectionsEnv(Environment):
 
                 self.Qab.append([tls_id, lane, queue_len])
 
+    def _get_cycle_policy_outputs(self):
+        """Dummy method. Replace with actual policy model inference."""
+        tls_ids = self.connection.trafficlight.getIDList()
+        return {tls_id: (42, 24) for tls_id in tls_ids}  # Example fixed values
          
     def _vehicle_control(self):
         """
@@ -708,7 +914,10 @@ class IntersectionsEnv(Environment):
             # vehicle info gathering
             vtype = self.connection.vehicle.getTypeID(vid)
             speed = self.connection.vehicle.getSpeed(vid)
-            energy = self.connection.vehicle.getFuelConsumption(vid)  # or getElectricConsumption() for EVs
+            if vtype in ['EV', 'CAEV']:
+                energy = self.connection.vehicle.getElectricityConsumption(vid) # Wh/s
+            else:
+                energy = self.connection.vehicle.getFuelConsumption(vid) # mg/s
 
             if vtype not in self.vehicle_stats:
                 self.vehicle_stats[vtype] = {'distance': 0.0, 'time': 0.0, 'energy': 0.0, 'veh_num': 0.0}
@@ -730,4 +939,4 @@ class IntersectionsEnv(Environment):
             result[f'avg_speed_{vtype.lower()}'] = (distance / time) if time > 0 else 0
             result[f'energy_per_mile_{vtype.lower()}'] = (energy / distance) if distance > 0 else 0
             result[f'avg_veh_num_{vtype.lower()}'] = veh_num/steps_num if steps_num > 0 else 0
-        return result                
+        return result              
