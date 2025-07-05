@@ -1,7 +1,7 @@
 {
     "episode":{
         "num_train_rollouts": 300,
-        "rollout_length": 20,
+        "rollout_length": 2048,
         "eval_freq": 50,
         "eval_num_eps": 25,
         "max_ep_steps": 1250,
@@ -12,8 +12,8 @@
     "agent": {
         "agent_type": "ppo",
         "single_agent": false,
-        "centralized_train": true,
-        "independent_train": false
+        "centralized_train": false,
+        "independent_train": true
     },
     "ppo":{
         "gae_tau": 0.85,

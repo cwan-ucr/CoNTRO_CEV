@@ -4,6 +4,8 @@ from utils.utils import *
 from utils.random_search import grid_choices_random
 from utils.grid_search import grid_choices, get_num_grid_choices
 from run_agent_parallel import train_PPO, train_SAC, test_rule_based, test_PPO
+from run_agent_centralized import train_centralized_PPO
+from run_agent_independent import train_ippo
 import sys
 import os
 from data_collector import DataCollector, POSSIBLE_DATA
@@ -90,15 +92,28 @@ def run_normal(verbose, num_experiments=1, df_path=None, overwrite=True, data_to
 def run_experiment(exp1, exp2, constants, data_collector_obj, loaded_model=None):
     data_collector_obj.start_timer()
 
-    if loaded_model:
-        test_PPO(constants, device, data_collector_obj, loaded_model)
-    elif constants['agent']['agent_type'] == 'ppo':
-        train_PPO(constants, device, data_collector_obj)
-    elif constants['agent']['agent_type'] == 'sac':
-        train_SAC(constants, device, data_collector_obj)
+    if constants['agent']['centralized_train']:
+        if loaded_model:
+            # test_centralized_PPO(constants, device, data_collector_obj, loaded_model)
+            pass #test_centralized_PPO is not developed
+        if constants['agent']['agent_type'] == 'ppo':
+            train_centralized_PPO(constants, device, data_collector_obj)
+    elif constants['agent']['independent_train']:
+        if loaded_model:
+            # test_ippo(constants, device, data_collector_obj, loaded_model)
+            pass #test_ippo is not developed
+        if constants['agent']['agent_type'] == 'ppo':
+            train_ippo(constants, device, data_collector_obj)
     else:
-        assert constants['agent']['agent_type'] == 'rule'
-        test_rule_based(constants, device, data_collector_obj)
+        if loaded_model:
+            test_PPO(constants, device, data_collector_obj, loaded_model)
+        elif constants['agent']['agent_type'] == 'ppo':
+            train_PPO(constants, device, data_collector_obj)
+        elif constants['agent']['agent_type'] == 'sac':
+            train_SAC(constants, device, data_collector_obj)
+        else:
+            assert constants['agent']['agent_type'] == 'rule'
+            test_rule_based(constants, device, data_collector_obj)
 
     # Save and Refresh the data_collector
     data_collector_obj.end_timer(printIt=True)

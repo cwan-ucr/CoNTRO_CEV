@@ -104,6 +104,28 @@ class Storage:
     def cat(self, keys):
         data = [getattr(self, k)[:self.size] for k in keys]
         return map(lambda x: torch.cat(x, dim=0), data)
+    
+    def to_cpu_and_detach(self):
+        for k in self.keys:
+            values = getattr(self, k)
+            # Skip if it's empty or not a list (e.g., not used in this rollout)
+            if not isinstance(values, list):
+                continue
+            detached = []
+            for v in values:
+                if isinstance(v, torch.Tensor):
+                    detached.append(v.detach().cpu())
+                else:
+                    detached.append(v)
+            setattr(self, k, detached)
+            
+    def merge(self, other_storage):
+        for key in self.keys:
+            if hasattr(other_storage, key):
+                self_list = getattr(self, key)
+                other_list = getattr(other_storage, key)
+                if isinstance(self_list, list) and isinstance(other_list, list):
+                    self_list.extend(other_list)
 
 
 class Storage_SAC:
@@ -187,6 +209,15 @@ def get_rule_set_class(id):
     if id == 'cycle':
         return CycleRuleSet
     raise AssertionError('Ruleset not in possible sets!')
+
+def combine_storage(storages):
+    # Combine Storage instances
+    result = storages[0]
+    for key in result.__dict__.keys():
+        if isinstance(result.__dict__[key], list):
+            for s in storages[1:]:
+                result.__dict__[key].extend(s.__dict__[key])
+    return result
 
 
 # For traffic probability based on episode step (NOT USED)
