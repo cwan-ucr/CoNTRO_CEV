@@ -2,8 +2,8 @@
 Thanks for the work [Distributed PPO for Traffic Light Control with Multi-Agent RL](https://github.com/maxbrenner-ai/Multi-Agent-Distributed-PPO-Traffc-light-control)!!! We developed based on this to achieve function of co-opitmization of traffic signal control and vehicle trajectory planning. In the meantime, we further developed the CPPO and IPPO to train the policy for traffic signal control.
 
 
-## Distributed PPO for Traffic Light Control with Multi-Agent RL
-Uses a distributed version of the deep reinforcement learning algorithm [PPO](https://arxiv.org/abs/1707.06347) to control a grid of traffic lights for optimized traffic flow through the system. The traffic enviornment is implemented in the realistic traffic simulation [SUMO](https://sumo.dlr.de/docs/index.html). Multi-agent RL (MARL) is implemented with each traffic light acting as a single agent. 
+## Distributed SAC for Traffic Light Control with Multi-Agent RL
+Uses a distributed version of the deep reinforcement learning algorithm [SAC](https://arxiv.org/pdf/1812.05905) to control a grid of traffic lights for optimized traffic flow through the system. The traffic enviornment is implemented in the realistic traffic simulation [SUMO](https://sumo.dlr.de/docs/index.html). Multi-agent RL (MARL) is implemented with each traffic light acting as a single agent. 
 
 ### SUMO / Traci
 SUMO (**S**imulation of **U**rban **MO**bility) is a continuous road traffic simulation. [TraCI](Thttps://sumo.dlr.de/docs/TraCI.html) (**Tra**ffic **C**ontrol **I**nterface) connects to a SUMO simulation in a programming language (in this case Python) to allow for feeding inputs and recieving outputs. 
@@ -13,15 +13,9 @@ SUMO (**S**imulation of **U**rban **MO**bility) is a continuous road traffic sim
 The environments implemented for this problem are grids where an intersection is controlled by a traffic light. Either NS cars can go or EW cars, at a time. So each intersection has 2 possible configurations. Cars spawn at the edges and then have a predefined destination edge where they despawn.
 
 ### Models
-#### PPO
-[Proximal Policy Optimization](https://openai.com/blog/openai-baselines-ppo/) (PPO) is a policy gradient based reinforcement learning algorithm created by OpenAI. It is efficient and fairly simple and tends to be the goto for RL nowadays. There are a lot of great tutorials and code on PPO ([this](https://medium.com/@jonathan_hui/rl-proximal-policy-optimization-ppo-explained-77f014ec3f12), [this](https://github.com/ShangtongZhang/DeepRL/blob/master/deep_rl/agent/PPO_agent.py) and many more). 
+#### sac
+[Soft Actor-Critic](https://openai.com/blog/openai-baselines-ppo/) (SAC) is an off-policy value and gradient-based reinforcement learning algorithm. It is efficient and fairly simple and tends to be the goto for RL nowadays. There are a lot of great tutorials and code on SAC ([this](https://github.com/XinJingHao/DRL-Pytorch/blob/main/5.2%20SAC-Continuous/SAC.py) and many more). 
 
-![PPO code](/images/ppo.png)
-
-#### DPPO
-##### DISCLAIMER: The DPPO implementation here is incorrect. It does not properly aggregate the gradients during training.
-
-Distributed algorithms use multiple processes to speed up existing algorithms such as PPO. There arent as many simple resources on DPPO but I used a few different sources noted in my code such as [this repo](https://github.com/alexis-jacq/Pytorch-DPPO). I first implemented single-agent RL which means that in a single environment there is only one agent. In this apps case, this means all traffic lights are controlled by one agent. However, that means as the grid size increases the action size increases exponentially. 
 
 ####  MARL
 ![1x1 grid](/images/1_1-grid.png)
@@ -73,7 +67,7 @@ Finally, you can change the `agent_type` to `rule` if you want a simple rule bas
 
 ```
     "agent": {
-        "agent_type": "ppo",
+        "agent_type": "sac",
         "single_agent": false
     },
 ```
