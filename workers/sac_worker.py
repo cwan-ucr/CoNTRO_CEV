@@ -22,7 +22,6 @@ class SAC_Cycle_Worker(Worker):
         self.optimizer = optimizer
         self.num_agents = len(env.intersections) if not self.constants['agent']['single_agent'] else 1
         self.ep_reward = 0
-        self.NN.eval()
 
     def _reset(self):
         pass
@@ -36,8 +35,10 @@ class SAC_Cycle_Worker(Worker):
     def _take_action(self, state):
         with torch.no_grad():
             state = torch.from_numpy(state).to(dtype=torch.float32, device=self.device)
-            action, _ = self.NN.actor_model(state)
+            action, _ = self.shared_NN.actor_model(state) # using shared NN to sample actions
+            # action, _ = self.NN.actor_model(state) # using local NN to sample actions
             action = action.to(dtype=torch.float32).cpu().detach().numpy()
+            # action = 0.0 * action.to(dtype=torch.float32).cpu().detach().numpy()
 
         return action.astype(np.float32)
 
@@ -53,6 +54,7 @@ class SAC_Cycle_Worker(Worker):
                                        net.parameters()):
             param_target.data.copy_(param_target.data * (1.0 - tau) + param.data * tau)
 
+    # Using Local NN to obtain gradients
     def update(self, gama, grad_clip, tau):
         if self.replay_buffer.len() < self.replay_buffer.batch_size:
             return
@@ -61,16 +63,17 @@ class SAC_Cycle_Worker(Worker):
         batch_s, batch_a, batch_r, batch_s_, batch_d = self.replay_buffer.sample()
 
         # ----------------------------- ↓↓↓↓↓ Update QValue Net ↓↓↓↓↓ ------------------------------#
-        batch_a_, log_prob_ = self.NN.actor_model(batch_s_)
-        entropy = -log_prob_
+        with torch.no_grad():
+            batch_a_, log_prob_ = self.NN.actor_model(batch_s_)
+            entropy = -log_prob_
 
-        Q1_, Q2_ = self.NN.target_critic_model(batch_s_, batch_a_)
-        Q_target = (batch_r + gama * (~batch_d) *
-                              (torch.min(Q1_.squeeze(1), Q2_.squeeze(1)) + self.NN.log_alpha.exp() * entropy))
+            Q1_, Q2_ = self.NN.target_critic_model(batch_s_, batch_a_)
+            Q_target = (batch_r + gama * (~batch_d) *
+                                  (torch.min(Q1_, Q2_) + self.NN.log_alpha.exp() * entropy))
 
         Q1, Q2 = self.NN.critic_model(batch_s, batch_a)
 
-        td_error = F.mse_loss(Q_target, Q1.squeeze(1)) + F.mse_loss(Q_target, Q2.squeeze(1))
+        td_error = F.mse_loss(Q_target, Q1) + F.mse_loss(Q_target, Q2)
 
         self.optimizer.critic_loss.append(td_error.item())
 
@@ -81,32 +84,98 @@ class SAC_Cycle_Worker(Worker):
         self.optimizer.optim_critic.step()
 
         # ----------------------------- ↓↓↓↓↓ Update Actor Net ↓↓↓↓↓ ------------------------------#
-        for params in self.NN.critic_model.parameters(): params.requires_grad = False
+        for params in self.NN.critic_model.parameters():
+            params.requires_grad = False
         new_actions, new_log_prob = self.NN.actor_model(batch_s)
 
-        Q1, Q2 = self.NN.critic_model(batch_s, batch_a)
+        Q1, Q2 = self.NN.critic_model(batch_s, new_actions)
         min_q = torch.min(Q1, Q2)
 
-        actor_loss = (self.NN.log_alpha.exp() * new_log_prob - min_q.squeeze(1)).mean()
+        actor_loss = (self.NN.log_alpha.exp() * new_log_prob - min_q).mean()
         self.optimizer.actor_loss.append(actor_loss.item())
-
         self.optimizer.optim_actor.zero_grad()
         actor_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.NN.actor_model.parameters(), grad_clip)
         ensure_shared_grads(self.NN.actor_model, self.shared_NN.actor_model)
         self.optimizer.optim_actor.step()
 
-        for params in self.NN.critic_model.parameters(): params.requires_grad = True
+        for params in self.NN.critic_model.parameters():
+            params.requires_grad = True
 
         # ----------------------------- ↓↓↓↓↓ Update Alpha ↓↓↓↓↓ ------------------------------#
         alpha_loss = -((self.NN.log_alpha * new_log_prob + self.NN.target_entropy).detach()).mean()
-        alpha_loss.requires_grad = True
         self.optimizer.alpha_loss.append(alpha_loss.item())
 
         self.optimizer.optim_alpha.zero_grad()
         alpha_loss.backward()
-        self.shared_NN.log_alpha.grad = self.NN.log_alpha.grad
+        self.shared_NN.log_alpha.grad = self.NN.log_alpha.grad.detach().clone()
         self.optimizer.optim_alpha.step()
+
+        with torch.no_grad():
+            self.shared_NN.log_alpha.data.clamp_(min=np.log(1e-4))
+
+        self.optimizer.log_alpha.add_(self.shared_NN.log_alpha.detach().item())
+
+        # soft update
+        self.soft_update(self.shared_NN.critic_model, self.shared_NN.target_critic_model, tau)
+
+    def _update(self, gama, grad_clip, tau):
+        if self.replay_buffer.len() < self.replay_buffer.batch_size:
+            return
+
+        # Sampling from replay buffer
+        batch_s, batch_a, batch_r, batch_s_, batch_d = self.replay_buffer.sample()
+
+        # ----------------------------- ↓↓↓↓↓ Update QValue Net ↓↓↓↓↓ ------------------------------#
+        with torch.no_grad():
+            batch_a_, log_prob_ = self.shared_NN.actor_model(batch_s_)
+            entropy = -log_prob_
+
+            Q1_, Q2_ = self.shared_NN.target_critic_model(batch_s_, batch_a_)
+            Q_target = (batch_r + gama * (~batch_d) *
+                        (torch.min(Q1_, Q2_) + self.shared_NN.log_alpha.exp() * entropy))
+
+        Q1, Q2 = self.shared_NN.critic_model(batch_s, batch_a)
+
+        td_error = F.mse_loss(Q_target, Q1) + F.mse_loss(Q_target, Q2)
+
+        self.optimizer.critic_loss.append(td_error.item())
+
+        self.optimizer.optim_critic.zero_grad()
+        td_error.backward()
+        torch.nn.utils.clip_grad_norm_(self.shared_NN.critic_model.parameters(), grad_clip)
+        # ensure_shared_grads(self.NN.critic_model, self.shared_NN.critic_model)
+        self.optimizer.optim_critic.step()
+
+        # ----------------------------- ↓↓↓↓↓ Update Actor Net ↓↓↓↓↓ ------------------------------#
+        for params in self.shared_NN.critic_model.parameters():
+            params.requires_grad = False
+
+        new_actions, new_log_prob = self.shared_NN.actor_model(batch_s)
+        Q1, Q2 = self.shared_NN.critic_model(batch_s, new_actions)
+        min_q = torch.min(Q1, Q2)
+
+        actor_loss = (self.shared_NN.log_alpha.exp() * new_log_prob - min_q).mean()
+        self.optimizer.actor_loss.append(actor_loss.item())
+        self.optimizer.optim_actor.zero_grad()
+        actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.shared_NN.actor_model.parameters(), grad_clip)
+        # ensure_shared_grads(self.NN.actor_model, self.shared_NN.actor_model)
+        self.optimizer.optim_actor.step()
+
+        for params in self.shared_NN.critic_model.parameters():
+            params.requires_grad = True
+
+        # ----------------------------- ↓↓↓↓↓ Update Alpha ↓↓↓↓↓ ------------------------------#
+        alpha_loss = -(self.shared_NN.log_alpha * (new_log_prob + self.shared_NN.target_entropy).detach()).mean()
+        self.optimizer.alpha_loss.append(alpha_loss.item())
+
+        self.optimizer.optim_alpha.zero_grad()
+        alpha_loss.backward()
+        # self.shared_NN.log_alpha.grad = self.NN.log_alpha.grad
+        self.optimizer.optim_alpha.step()
+
+        self.optimizer.log_alpha.append(self.shared_NN.log_alpha.detach().item())
 
         # soft update
         self.soft_update(self.shared_NN.critic_model, self.shared_NN.target_critic_model, tau)
@@ -119,7 +188,7 @@ class SAC_Cycle_Worker(Worker):
         # Sync.
         self._copy_shared_model_to_local()
         rollout_amt = 0  # keeps track of the amt in the current rollout storage
-        # self.env.vis = True if total_step % 1 == 0 else False
+        # self.env.vis = True if total_step % 100 == 0 else False
         while rollout_amt < self.constants['episode']['rollout_length']:
             cycle_done = self.env.get_cycle_done()  # check if the signal cycle for each intersection is done
             step_state = self.env.get_step_state()
@@ -140,22 +209,36 @@ class SAC_Cycle_Worker(Worker):
                     self.env.cycle_action[intersection] = action_i.copy()
 
                     if self.env.prev_cycle_action[intersection] is not None:
-                        self.replay_buffer.add(self.env.prev_cycle_state[intersection].copy(),
+                         self.replay_buffer.add(self.env.prev_cycle_state[intersection].copy(),
                                                self.env.prev_cycle_action[intersection].copy(),
                                                reward_i,
                                                self.env.cycle_state[intersection].copy(),
                                                done)
-                        self.update(self.constants['sac']['gama'], self.constants['sac']['grad_clip'], self.constants['sac']['tau'])
+                         self._update(self.constants['sac']['gama'], self.constants['sac']['grad_clip'], self.constants['sac']['tau'])
 
             rollout_amt += 1
 
 
 
-            done = self.env.vehicle_step(self.ep_step)  # vehicle controller
+            done = self.env.vehicle_step(self.ep_step, self.shared_NN.actor_model)  # vehicle controller
             self.ep_step += 1
             if done:
                 # Sync local model with shared model at start of each ep
-                print(f"[Worker {self.env.agent_ID}] Rollout reward stats {self.ep_reward:.6f}")
+                actor_loss = 0
+                critic_loss = 0
+                alpha_loss = 0
+                log_alpha = 0
+                results = list(self.env.training_veh_matrix.values()).copy()
+                self.env.training_veh_matrix.clear()
+                if self.optimizer.alpha_loss.__len__() > 0:
+                    actor_loss = self.optimizer.actor_loss[-1]
+                    critic_loss = self.optimizer.critic_loss[-1]
+                    alpha_loss = self.optimizer.alpha_loss[-1]
+                    log_alpha = self.optimizer.log_alpha[-1]
+                print(f"[Worker {self.env.agent_ID}] Rollout reward stats {self.ep_reward:.2f},"
+                      f" actor loss {actor_loss:.2f}, critic loss {critic_loss:.2f} alpha loss {alpha_loss:.2f} ")
+                veh_dist = list(self.constants["environment"]["vehicle_type_distribution"].values())
+                self.env.training_matrix.append(veh_dist + results + [self.ep_reward, actor_loss, critic_loss, alpha_loss, log_alpha, total_step])
                 self._copy_shared_model_to_local()
                 self.ep_step = 0
                 self.ep_reward = 0
