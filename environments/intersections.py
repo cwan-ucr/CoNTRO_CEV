@@ -1,3 +1,4 @@
+import torch
 from numpy.random import choice
 import random
 import sys
@@ -36,14 +37,14 @@ CYCLE_BOUND = 0.7
 GREEN_RATIO_BOUND = 0.3
 
 # per agent
-BASE_CYCLE = 40
+BASE_CYCLE = 60
 BASE_GREEN_RATIO = 0.5
 
 PER_AGENT_STATE_SIZE = 6
 GLOBAL_STATE_SIZE = 1
 
-SAC_AGENT_STATE_SIZE = 36
-GLOBAL_SAC_STATE_SIZE = 1
+SAC_AGENT_STATE_SIZE = 48
+GLOBAL_SAC_STATE_SIZE = 16
 # per agent
 ACTION_SIZE = 2
 
@@ -68,6 +69,8 @@ class IntersectionsEnv(Environment):
         self.phases = get_phases(constants['environment'], net_path)
         self.node_edge_dic = get_node_edge_dict(self.net_path)
         self._generate_addfile()
+        self.training_matrix = []
+        self.training_veh_matrix = []
         # Calc intersection distances for reward calc
         self.distances = get_cartesian_intersection_distances(net_path)
         # For vehicle info gathering and control
@@ -92,6 +95,11 @@ class IntersectionsEnv(Environment):
         self.prev_phases = {}
         self.phase0_duration = {intersection: None for intersection in self.intersections}
         self.queue_last = {intersection: 0 for intersection in self.intersections}
+
+        # random seed settings
+        random.seed(constants['episode']['seed'] + self.agent_ID)
+        torch.manual_seed(constants['episode']['seed'] + self.agent_ID)
+        np.random.seed(constants['episode']['seed'] + self.agent_ID)
 
     def _open_connection(self):
             self._generate_routefile()
@@ -135,7 +143,7 @@ class IntersectionsEnv(Environment):
             self.cycle_state[intersection] = state[i].copy()
             self._excute_cycle_action(action, intersection, is_start=True)
 
-    def vehicle_step(self, ep_step):
+    def vehicle_step(self, ep_step, RL_agent):
 
         start_gather_info_time = time.time()
         # gather vehicle level info
@@ -147,7 +155,7 @@ class IntersectionsEnv(Environment):
         # control vehicle
         start_control_vehicle_time = time.time()
         if self.constants['environment']['use_vehicle_controller']:
-            self._update_traffic_signal_state(ep_step)
+            self._update_traffic_signal_state(ep_step, RL_agent)
             self._vehicle_control()
         control_vehicle_time = time.time() - start_control_vehicle_time
         self.control_vehicle_time += control_vehicle_time
@@ -162,6 +170,7 @@ class IntersectionsEnv(Environment):
             else:
                 print(
                     f"[Worker {self.agent_ID}] Step: {ep_step}, Vehicles: {self.connection.simulation.getMinExpectedNumber()}")
+                self.training_veh_matrix = self._compute_vehicle_metrics()
                 s_ = self.SAC_reset()
                 state = [self.signal_state_encoder(np.array(s_[i]), i) for i in range(len(s_))]
                 self.initialize_signal(state)
@@ -194,13 +203,21 @@ class IntersectionsEnv(Environment):
         """
 
         tw = 0.99 # time significance parameter
+        is_start = self.connection.simulation.getTime() == 0.0
+        is_list = isinstance(signal_state, list)
 
-        len_steps = signal_state.__len__() if signal_state.shape.__len__() > 1 else 1
+        if is_list:
+            len_steps = signal_state.__len__() if not is_start else 1
+        else:
+            len_steps = signal_state.shape[0] if signal_state.shape.__len__() > 1 else 1
+
         if len_steps == 0:
             return None
 
         origin_state_list = np.array(signal_state)
 
+        one_hot = np.zeros(self.intersections.__len__(), dtype=np.float32)
+        one_hot[index] = 1
 
         time_significance = np.logspace(start=0, stop=len_steps - 1, num=len_steps, base=tw).reshape(-1, 1)
         time_significance_reverse = np.flip(time_significance)
@@ -209,11 +226,12 @@ class IntersectionsEnv(Environment):
 
         enconder_state_1 = np.cumsum(origin_state_list * time_significance, axis=0)[-1, :]
         enconder_state_2 = np.cumsum(origin_state_list * time_significance_reverse, axis=0)[-1, :]
-        enconder_state_3 = np.mean(origin_state_list, axis=0) if len_steps > 1 else origin_state_list
+        enconder_state_3 = np.mean(origin_state_list, axis=0) if len_steps > 1 or origin_state_list.shape.__len__() > 1 else origin_state_list
 
         enconder_state = np.concatenate([enconder_state_1 / normalized_ratio,
                                          enconder_state_2 / normalized_ratio,
-                                         enconder_state_3, np.array([index])])
+                                         enconder_state_3])
+        enconder_state = np.append(enconder_state, one_hot)
 
         return enconder_state
 
@@ -288,10 +306,25 @@ class IntersectionsEnv(Environment):
                 jam_length = [self.connection.lanearea.getJamLengthMeters(det) for det in dets]
                 Mean_speed = [self.connection.lanearea.getLastStepMeanSpeed(det) for det in dets]
                 Occupancy = [self.connection.lanearea.getLastStepOccupancy(det) for det in dets]
+                VehNums = [self.connection.lanearea.getLastStepVehicleNumber(det) for det in dets]
+                CAVPR = [0, 0, 0, 0]
+                for i, VehNum in enumerate(VehNums):
+                    if VehNum == 0:
+                        continue
+                    else:
+                        CAVNum = 0
+                        VehList = self.connection.lanearea.getLastStepVehicleIDs(dets[i])
+                        for VehID in VehList:
+                            Veh_Type = self.connection.vehicle.getTypeID(VehID)
+                            if Veh_Type == 'CAV' or Veh_Type == 'CAEV':
+                                CAVNum += 1
+
+                        CAVPR[i] = CAVNum / VehNum
             else:
                 jam_length = [0] * len(dets)
                 Mean_speed = [0] * len(dets)
                 Occupancy = [0] * len(dets)
+                CAVPR = [0] * len(dets)
 
             self.cycle_queue[intersection] += (np.array(jam_length)).sum() / (np.array(Detector_length)).sum()
 
@@ -300,7 +333,7 @@ class IntersectionsEnv(Environment):
                 jam_length[i] = jam_length[i] / Detector_length[i]
                 Mean_speed[i] = Mean_speed[i] / Max_Speed[i] if Occupancy[i] > 1e-4 else 1
 
-            step_state[index] = Occupancy + jam_length + Mean_speed
+            step_state[index] = Occupancy + jam_length + Mean_speed + CAVPR
 
 
         return step_state
@@ -312,7 +345,7 @@ class IntersectionsEnv(Environment):
         :return:
         """
         # Get the reward for the current cycle
-        reward = np.array(-1.0 * self.cycle_queue[intersection] / BASE_CYCLE)
+        reward = np.array(-1.0 * self.cycle_queue[intersection] / 10)
         return reward
 
     # Allows for interpolation between local and global reward given a reward disc. factor
@@ -359,7 +392,7 @@ class IntersectionsEnv(Environment):
             # Combine rewards
             local_rewards[intersection] = (
                 1.0 * d_dets_rew +
-                0.01 * stability_reward
+                1.0 * stability_reward
             )
             
         # If getting global then return the sum (singe value)
@@ -413,7 +446,7 @@ class IntersectionsEnv(Environment):
         cycle_change_ratio = action[0] * CYCLE_BOUND
         green_ratio = action[1] * GREEN_RATIO_BOUND
         cycle_length = int((BASE_CYCLE * (1 + cycle_change_ratio)).clip(18, 120))
-        green_duration = int(((BASE_GREEN_RATIO + green_ratio) * cycle_length).clip(3, cycle_length - 9))
+        green_duration = int(((BASE_GREEN_RATIO + green_ratio) * cycle_length - 3).clip(3, cycle_length - 9))
         yellow_duration = 3
         red_duration = cycle_length - green_duration - yellow_duration * 2
 
@@ -422,7 +455,10 @@ class IntersectionsEnv(Environment):
         phase_2 = "srrGGgsrrGGg"
         phase_3 = "srryyysrryyy"
 
-        current_phase = 3 if ~is_start else 0
+        if not is_start:
+            current_phase = 3
+        else:
+            current_phase = 0
 
         # Reset control logic
         new_logic = traci.trafficlight.Logic(
@@ -661,7 +697,7 @@ class IntersectionsEnv(Environment):
         rem_probs = [v['rem'] for v in node_probs.values()]
 
         vehicle_types = ["ICEV", "EV", "CAV", "CAEV"]
-        vehicle_probs = self.constants["environment"]["vehicle_type_distribution"]  # e.g., [0.4, 0.2, 0.2, 0.2]
+        vehicle_probs = self.constants["environment"]["vehicle_type_distribution"].values()  # e.g., [0.4, 0.2, 0.2, 0.2]
 
         def pick_rem_edge(gen_node):
             while True:
@@ -676,6 +712,8 @@ class IntersectionsEnv(Environment):
                 gen_edge = self.node_edge_dic[gen_k]['gen']
                 rem_edge = self.node_edge_dic[rem_k]['rem']
                 vehicle_type = random.choices(vehicle_types, weights=vehicle_probs, k=1)[0]
+
+
                 trips.append(
                     f'    <trip id="{route_id}_{t}" type="{vehicle_type}" from="{gen_edge}" to="{rem_edge}" depart="{t}"/>'
                 )
@@ -686,10 +724,25 @@ class IntersectionsEnv(Environment):
     def _generate_routefile(self):
         route_lines = [
             "<routes>",
-            f'    <vType id="ICEV" vClass="passenger" accel="1.0" decel="4.5" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger"/>',
-            f'    <vType id="CAV" vClass="passenger" accel="1.0" decel="4.5" sigma="0.3" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger" carFollowModel="CACC"/>'
-            # EV and CAEV will be loaded via external XML
+            # f'    <vType id="ICEV" vClass="passenger" accel="1.0" decel="4.5" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger">',
+            # f'        <param key="has.glosa.device" value="true"/>',
+            # f'        <param key="device.glosa.range" value="60"/>',
+            # f'    </vType>',
+            f'    <vType id="ICEV" vClass="passenger" accel="3.0" decel="3.0" sigma="0.5" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger"/>',
+            f'    <vType id="CAV" vClass="passenger" accel="3.0" decel="3.0" sigma="0.3" length="{VEH_LENGTH}" minGap="{VEH_MIN_GAP}" maxSpeed="15" guiShape="passenger" >',
+            f'        <param key="has.glosa.device" value="true"/>',
+            f'        <param key="device.glosa.range" value="200"/>',
+            f'    </vType>',
+           # EV and CAEV will be loaded via external XML
         ]
+
+        if self.constants["environment"]["rand_CAVPR"]:
+            CAVPR = np.random.rand()
+            CAVPR = max(0.1, min(CAVPR, 0.9))
+            vehicle_probs = [0, 1 - CAVPR, 0, CAVPR]
+            # vehicle_probs = [1 - CAVPR, 0, CAVPR, 0]
+            vehicle_dist = {"ICEV": vehicle_probs[0], "EV": vehicle_probs[1], "CAV": vehicle_probs[2], "CAEV": vehicle_probs[3]}
+            self.constants["environment"]["vehicle_type_distribution"] = vehicle_dist.copy()
 
         for t in range(self.constants['episode']['generation_ep_steps']):
             trips = self._add_vehicle(
@@ -733,7 +786,7 @@ class IntersectionsEnv(Environment):
                 f'freq="100000" friendlyPos="true" file="{escape(self.env_name)}.out"/>'
             )
 
-        add_lines.append(f'    <edgeData id="edgeData_0" file="edgeData_{self.agent_ID}.out.xml"/>')
+        # add_lines.append(f'    <edgeData id="edgeData_0" file="edgeData_{self.agent_ID}.out.xml"/>')
         add_lines.append('</additionals>')
 
         add_path = f"data/{self.env_name}_{self.agent_ID}.add.xml"
@@ -765,7 +818,7 @@ class IntersectionsEnv(Environment):
 
         return None, None
     
-    def _update_traffic_signal_state(self, ep_step):
+    def _update_traffic_signal_state(self, ep_step, RL_agent):
         """
         Precompute signal phase structure and lane queues.
         Handles recorded, predicted, and hybrid signal phase modes.
@@ -777,7 +830,7 @@ class IntersectionsEnv(Environment):
         phase_mode = self.constants['environment'].get('phase_mode', 'recorded')  # 'recorded', 'predicted', or 'hybrid'
 
         # === 1. Recorded Phases (every 200 steps only)
-        if ep_step % 200 == 0:
+        if ep_step % 60 == 0:
             self.recorded_phases = {
                 tls_id: logic.phases
                 for tls_id in tls_ids
@@ -786,20 +839,18 @@ class IntersectionsEnv(Environment):
             }
 
         # === 2. Predicted Phases (based on policy outputs) (every 5 steps only)
-        # if phase_mode in ['predicted', 'hybrid'] and ep_step % 5 == 0:
         if phase_mode in ['predicted', 'hybrid']:
             # from traci.trafficlight import Phase
             self.predicted_phases = {}
-            policy_outputs = self._get_cycle_policy_outputs()  # {tls_id: (cycle_len, green_len)}
+            policy_outputs = self._get_cycle_policy_outputs(RL_agent)  # {tls_id: (cycle_len, green_len)}
             for tls_id in tls_ids:
                 cycle_len, green_len = policy_outputs[tls_id]
                 self.predicted_phases[tls_id] = [
                     traci.trafficlight.Phase(duration=green_len, state="GGgsrrGGgsrr"),
                     traci.trafficlight.Phase(duration=3, state="yyysrryyysrr"),
-                    traci.trafficlight.Phase(duration=cycle_len - green_len - 3, state="srrGGgsrrGGg"),
+                    traci.trafficlight.Phase(duration=cycle_len - green_len - 6, state="srrGGgsrrGGg"),
                     traci.trafficlight.Phase(duration=3, state="srryyysrryyy")
                 ]
-
         # === 3. Hybrid Phases (within current cycle)
         if phase_mode == 'hybrid':
             self.phases_old_all = {}
@@ -817,6 +868,7 @@ class IntersectionsEnv(Environment):
                     state = self.recorded_phases[tls_id][i].state  # 默认状态不变
                     hybrid_phases.append(traci.trafficlight.Phase(duration=blended, state=state))
                 self.phases_old_all[tls_id] = hybrid_phases
+
         elif phase_mode == 'predicted':
             self.phases_old_all = self.predicted_phases
         else:  # 'recorded'
@@ -845,7 +897,8 @@ class IntersectionsEnv(Environment):
                 queue_len = 0
 
                 for veh_id in veh_ids:
-                    if self.connection.vehicle.getTypeID(veh_id) == "car" and veh_id not in ead_set:
+                    veh_type = self.connection.vehicle.getTypeID(veh_id)
+                    if (veh_type == "CAV" or veh_type == 'CAEV') and veh_id not in ead_set:
                         self.EAD_ID_list.append(veh_id)
                         self.last_speed.append(13.0)
                         ead_set.add(veh_id)
@@ -857,10 +910,34 @@ class IntersectionsEnv(Environment):
 
                 self.Qab.append([tls_id, lane, queue_len])
 
-    def _get_cycle_policy_outputs(self):
+    def _get_cycle_policy_outputs(self, RL_agent):
         """Dummy method. Replace with actual policy model inference."""
         tls_ids = self.connection.trafficlight.getIDList()
-        return {tls_id: (42, 24) for tls_id in tls_ids}  # Example fixed values
+        signal_predicted = {}
+        step_state = self.get_step_state()
+        for i, tls_id in enumerate(tls_ids):
+            if self.cycle_state_origin[tls_id].__len__() == 0:
+                current_state = np.array(step_state[i])
+                current_state = self.signal_state_encoder(current_state, i)
+            else:
+                current_state = self.signal_state_encoder(self.cycle_state_origin[tls_id], i)
+
+            with torch.no_grad():
+                current_state = torch.from_numpy(current_state).to(dtype=torch.float32, device=self.device)
+                action, _ = RL_agent(current_state)
+                action = action.to(dtype=torch.float32).cpu().detach().numpy().astype(np.float32)
+
+            cycle_change_ratio = action[0] * CYCLE_BOUND
+            green_ratio = action[1] * GREEN_RATIO_BOUND
+            cycle_length = int((BASE_CYCLE * (1 + cycle_change_ratio)).clip(18, 120))
+            green_duration = int(((BASE_GREEN_RATIO + green_ratio) * cycle_length - 3).clip(3, cycle_length - 9))
+            yellow_duration = 3
+
+            signal_predicted.update({tls_id: (cycle_length, green_duration)})
+
+
+
+        return signal_predicted  # Example fixed values
          
     def _vehicle_control(self):
         """
@@ -902,7 +979,31 @@ class IntersectionsEnv(Environment):
         # self.ead_counts_per_step.append(len(ead_ids))
         # print(self.ead_counts_per_step)
 
+    def _get_energy_consumption(self, v, a):
+        """
+        Calculate energy consumption of a vehicle with speed v and acceleration a
+        Wu, etal. 2015  http://dx.doi.org/10.1016/j.trd.2014.10.007
+        """
 
+        # 参数定义
+        frl = 0.006  # 滚动阻力系数
+        k = 1.30  # 风阻系数
+        K = 10.08  # 空气阻力系数
+        r = 0.11  # 电阻 omega
+        R = 0.5  # 轮胎半径 m
+        g = 9.81  # 重力加速度 m/s^2
+        M_e = 1266  # 车辆质量 kg
+        G = 0 # 坡度
+        efficiency = 0.95  # 电池效率
+
+        # 计算总力 F
+        F = M_e * a + k * (v ** 2) + frl * M_e * g + M_e * g * G
+
+        if F < 0:
+            P = r * (R**2) * (F**2) / (K**2) + v * (M_e * a * efficiency + k * (v**2) + frl * M_e * g + M_e * g * G)
+        else:
+            P = r * (R**2) * (F**2) / (K**2) + v * F
+        return P / 3600 # wh/s
     
     def _vehicle_info(self):
         """
@@ -914,29 +1015,48 @@ class IntersectionsEnv(Environment):
             # vehicle info gathering
             vtype = self.connection.vehicle.getTypeID(vid)
             speed = self.connection.vehicle.getSpeed(vid)
+            acceleration = self.connection.vehicle.getAcceleration(vid)
             if vtype in ['EV', 'CAEV']:
                 energy = self.connection.vehicle.getElectricityConsumption(vid) # Wh/s
+                energy = self._get_energy_consumption(speed, acceleration)  # Wh/s
             else:
-                energy = self.connection.vehicle.getFuelConsumption(vid) # mg/s
+                energy = self.connection.vehicle.getFuelConsumption(vid)  # mg/s
 
             if vtype not in self.vehicle_stats:
-                self.vehicle_stats[vtype] = {'distance': 0.0, 'time': 0.0, 'energy': 0.0, 'veh_num': 0.0}
+                self.vehicle_stats[vtype] = {'distance': 0.0, 'time': 0.0, 'energy': 0.0, 'veh_num': 0.0, 'idling': 0.0, 'vId': [vid]}
+                self.vehicle_stats[vtype]['veh_num'] += 1
+            if vid not in self.vehicle_stats[vtype]['vId']:
+                self.vehicle_stats[vtype]['vId'].append(vid)
+                self.vehicle_stats[vtype]['veh_num'] += 1
 
             self.vehicle_stats[vtype]['distance'] += speed * self.constants['environment']['step_length']
             self.vehicle_stats[vtype]['time'] += self.constants['environment']['step_length']
+            self.vehicle_stats[vtype]['idling'] += 1 if speed < 0.1 else 0
             self.vehicle_stats[vtype]['energy'] += energy * self.constants['environment']['step_length']
-            self.vehicle_stats[vtype]['veh_num'] += 1
          
             
     def _compute_vehicle_metrics(self):
         result = {}
-        for vtype, stats in self.vehicle_stats.items():
+        veh_types = ["ICEV", "EV", "CAV", "CAEV"]
+        for vtype in veh_types:
+            if vtype not in self.vehicle_stats:
+                continue
+            stats = self.vehicle_stats[vtype]
             distance = stats['distance']
             time = stats['time']
             energy = stats['energy']
-            veh_num = stats['veh_num']
-            steps_num = self.constants['episode']['max_ep_steps']
+            idling = stats['idling']
             result[f'avg_speed_{vtype.lower()}'] = (distance / time) if time > 0 else 0
             result[f'energy_per_mile_{vtype.lower()}'] = (energy / distance) if distance > 0 else 0
-            result[f'avg_veh_num_{vtype.lower()}'] = veh_num/steps_num if steps_num > 0 else 0
-        return result              
+            result[f'idling_per{vtype.lower()}'] = (idling / stats['veh_num']) if stats['veh_num'] > 0 else 0
+            result[f'veh_num_{vtype.lower()}'] = stats['veh_num']
+        # for vtype, stats in self.vehicle_stats.items():
+        #     distance = stats['distance']
+        #     time = stats['time']
+        #     energy = stats['energy']
+        #     idling = stats['idling']
+        #     result[f'avg_speed_{vtype.lower()}'] = (distance / time) if time > 0 else 0
+        #     result[f'energy_per_mile_{vtype.lower()}'] = (energy / distance) if distance > 0 else 0
+        #     result[f'idling_per{vtype.lower()}'] = (idling / stats['veh_num']) if stats['veh_num'] > 0 else 0
+        #     result[f'veh_num_{vtype.lower()}'] = stats['veh_num']
+        return result

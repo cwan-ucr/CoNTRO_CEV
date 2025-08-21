@@ -174,7 +174,7 @@ class Environment:
         # control vehicle
         start_control_vehicle_time = time.time()
         if self.constants['environment']['use_vehicle_controller']:
-            self._update_traffic_signal_state(ep_step)
+            self._update_traffic_signal_state(ep_step, def_agent)
             self._vehicle_control()
         control_vehicle_time = time.time() - start_control_vehicle_time
         self.control_vehicle_time += control_vehicle_time
@@ -215,7 +215,7 @@ class Environment:
     def _generate_addfile(self):
         raise NotImplementedError
     
-    def _update_traffic_signal_state(self, ep_step):
+    def _update_traffic_signal_state(self, ep_step, RL_agent):
         raise NotImplementedError
     
     def _vehicle_control(self):
